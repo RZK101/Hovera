@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/icon.ico" alt="Hovera Logo" width="96" height="96" />
+<img src="assets/icon.png" alt="Hovera Logo" width="96" height="96" />
 
 # Hovera
 
