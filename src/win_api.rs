@@ -8,17 +8,16 @@ use windows_sys::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, mouse_event, GetAsyncKeyState, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_WHEEL, VK_C, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_F4, VK_LEFT, VK_LWIN,
-    VK_MEDIA_PLAY_PAUSE, VK_MENU, VK_RIGHT, VK_TAB, VK_V,
+    keybd_event, mouse_event, GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD,
+    KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, VK_A,
+    VK_BACK, VK_C, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_F4, VK_LEFT, VK_LWIN, VK_MEDIA_PLAY_PAUSE,
+    VK_MENU, VK_RETURN, VK_RIGHT, VK_S, VK_SHIFT, VK_TAB, VK_V, VK_VOLUME_DOWN, VK_VOLUME_MUTE,
+    VK_VOLUME_UP, VK_Y, VK_Z,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SetCursorPos, SetWindowPos, HWND_TOPMOST, SM_CXSCREEN, SM_CYSCREEN,
     SWP_NOMOVE, SWP_NOSIZE,
-};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_UNICODE,
 };
 
 fn tap_combo(keys: &[u16]) {
@@ -86,6 +85,69 @@ pub fn type_text(text: &str) {
     }
 }
 
+// --- PERINTAH EDIT TEKS (MODE DIKTE) ---
+pub fn press_enter() {
+    tap_combo(&[VK_RETURN]);
+}
+
+pub fn press_tab() {
+    tap_combo(&[VK_TAB]);
+}
+
+pub fn press_backspace() {
+    tap_combo(&[VK_BACK]);
+}
+
+/// Ctrl + Backspace (Hapus 1 kata terakhir)
+pub fn delete_word() {
+    tap_combo(&[VK_CONTROL, VK_BACK]);
+}
+
+/// Ctrl + A (Pilih semua teks)
+pub fn select_all() {
+    tap_combo(&[VK_CONTROL, VK_A]);
+}
+
+/// Ctrl + Z (Undo)
+pub fn undo_action() {
+    tap_combo(&[VK_CONTROL, VK_Z]);
+}
+
+/// Ctrl + Y (Redo)
+pub fn redo_action() {
+    tap_combo(&[VK_CONTROL, VK_Y]);
+}
+
+// --- KONTROL VOLUME (AIR-KNOB & VOICE) ---
+pub fn volume_up() {
+    tap_combo(&[VK_VOLUME_UP]);
+}
+
+pub fn volume_down() {
+    tap_combo(&[VK_VOLUME_DOWN]);
+}
+
+pub fn volume_mute() {
+    tap_combo(&[VK_VOLUME_MUTE]);
+}
+
+// --- SHORTCUT RADIAL MENU ---
+/// Win + Shift + S (Snipping Tool / Screenshot)
+pub fn take_screenshot() {
+    tap_combo(&[VK_LWIN, VK_SHIFT, VK_S]);
+}
+
+/// Win + V (Clipboard History)
+pub fn open_clipboard_history() {
+    tap_combo(&[VK_LWIN, VK_V]);
+}
+
+/// Win + Tab (Task View)
+pub fn open_task_view() {
+    tap_combo(&[VK_LWIN, VK_TAB]);
+}
+
+// --- NAVIGASI & SISTEM ---
 pub fn navigate_back() {
     tap_combo(&[VK_MENU, VK_LEFT]);
 }
@@ -94,17 +156,14 @@ pub fn navigate_forward() {
     tap_combo(&[VK_MENU, VK_RIGHT]);
 }
 
-/// Alt + Tab (Ganti Jendela)
 pub fn switch_window() {
     tap_combo(&[VK_MENU, VK_TAB]);
 }
 
-/// Win + Ctrl + Panah Kanan (Desktop 1 -> Desktop 2)
 pub fn switch_desktop_right() {
     tap_combo(&[VK_LWIN, VK_CONTROL, VK_RIGHT]);
 }
 
-/// Win + Ctrl + Panah Kiri (Desktop 2 -> Desktop 1)
 pub fn switch_desktop_left() {
     tap_combo(&[VK_LWIN, VK_CONTROL, VK_LEFT]);
 }
@@ -221,7 +280,6 @@ fn is_key_down(vkey: i32) -> bool {
     unsafe { (GetAsyncKeyState(vkey) as u16 & 0x8000) != 0 }
 }
 
-/// Mengecek kombinasi Ctrl+Alt+V dan Ctrl+Alt+Q secara global
 pub struct HotkeyWatcher {
     prev_v: bool,
     prev_q: bool,
@@ -235,7 +293,6 @@ impl HotkeyWatcher {
         }
     }
 
-    /// Mengembalikan `(toggle_camera_triggered, quit_triggered)`
     pub fn poll(&mut self) -> (bool, bool) {
         let ctrl = is_key_down(VK_CONTROL as i32);
         let alt = is_key_down(VK_MENU as i32);

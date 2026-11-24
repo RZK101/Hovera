@@ -1,8 +1,9 @@
 use crate::ui::UiHandle;
 use crate::win_api::{
-    close_window, copy_selection, media_play_pause, minimize_window, navigate_back,
-    navigate_forward, paste_selection, press_escape, switch_desktop_left, switch_desktop_right,
-    switch_window, type_text,
+    close_window, copy_selection, delete_word, media_play_pause, minimize_window, navigate_back,
+    navigate_forward, paste_selection, press_backspace, press_enter, press_escape, press_tab,
+    redo_action, select_all, switch_desktop_left, switch_desktop_right, switch_window, type_text,
+    undo_action, volume_down, volume_mute, volume_up,
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
@@ -34,6 +35,9 @@ const VOICE_GRAMMAR: &[&str] = &[
     "copy that",
     "paste that",
     "play pause",
+    "volume up",
+    "volume down",
+    "mute volume",
     "start typing",
     "[unk]",
 ];
@@ -184,8 +188,7 @@ impl VoiceController {
                                             cmd_recognizer.reset();
                                             ui.show_hud("Mode Perintah AKTIF");
                                         } else {
-                                            type_text(&format!("{text} "));
-                                            ui.show_hud(&format!("Ketik: {text}"));
+                                            handle_dictation_text(text, &ui);
                                         }
                                     }
                                 }
@@ -242,6 +245,70 @@ impl VoiceController {
     pub fn stop(&mut self) {
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
+        }
+    }
+}
+
+/// Menangani perintah edit teks & tanda baca saat Mode Dikte aktif
+fn handle_dictation_text(text: &str, ui: &UiHandle) {
+    match text {
+        "new line" | "press enter" | "enter" => {
+            press_enter();
+            ui.show_hud("Dikte: Enter");
+        }
+        "new paragraph" => {
+            press_enter();
+            press_enter();
+            ui.show_hud("Dikte: Paragraf Baru");
+        }
+        "delete word" | "erase word" => {
+            delete_word();
+            ui.show_hud("Dikte: Hapus Kata");
+        }
+        "backspace" | "delete letter" => {
+            press_backspace();
+            ui.show_hud("Dikte: Backspace");
+        }
+        "select all" => {
+            select_all();
+            ui.show_hud("Dikte: Select All");
+        }
+        "delete all" | "clear all" => {
+            select_all();
+            press_backspace();
+            ui.show_hud("Dikte: Hapus Semua");
+        }
+        "undo that" | "undo" => {
+            undo_action();
+            ui.show_hud("Dikte: Undo (Ctrl+Z)");
+        }
+        "redo that" | "redo" => {
+            redo_action();
+            ui.show_hud("Dikte: Redo (Ctrl+Y)");
+        }
+        "press tab" => {
+            press_tab();
+            ui.show_hud("Dikte: Tab");
+        }
+        "period" | "full stop" => {
+            type_text(". ");
+            ui.show_hud("Dikte: Titik (.)");
+        }
+        "comma" => {
+            type_text(", ");
+            ui.show_hud("Dikte: Koma (,)");
+        }
+        "question mark" => {
+            type_text("? ");
+            ui.show_hud("Dikte: Tanda Tanya (?)");
+        }
+        "exclamation mark" => {
+            type_text("! ");
+            ui.show_hud("Dikte: Tanda Seru (!)");
+        }
+        _ => {
+            type_text(&format!("{text} "));
+            ui.show_hud(&format!("Ketik: {text}"));
         }
     }
 }
@@ -311,6 +378,20 @@ fn execute_command(
     } else if text.contains("play pause") {
         media_play_pause();
         ui.show_hud("Play / Pause");
+        true
+    } else if text.contains("volume up") {
+        volume_up();
+        volume_up();
+        ui.show_hud("Volume Naik");
+        true
+    } else if text.contains("volume down") {
+        volume_down();
+        volume_down();
+        ui.show_hud("Volume Turun");
+        true
+    } else if text.contains("mute volume") {
+        volume_mute();
+        ui.show_hud("Mute / Unmute Volume");
         true
     } else {
         false
