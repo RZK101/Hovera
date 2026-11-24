@@ -27,7 +27,7 @@ use win_api::{
 
 const RADIAL_PINCH_THRESHOLD: f32 = 38.0;
 const RADIAL_RELEASE_THRESHOLD: f32 = 46.0;
-const RADIAL_DEBOUNCE_MS: u64 = 500;
+const RADIAL_HOLD_MS: u64 = 150;
 
 struct OneEuroFilter {
     min_cutoff: f32,
@@ -301,12 +301,11 @@ fn main() {
     // State untuk Air-Knob (Volume Tangan Kiri)
     let mut left_knob_ref_y: Option<f32> = None;
 
-    // State untuk Radial Menu (Tangan Kanan: Pinch Jempol + Kelingking + Debounce)
+    // State untuk Radial Menu (Hold Pinch Jempol + Kelingking -> Lepas untuk Pilih)
     let mut radial_open = false;
     let mut radial_center = (screen_w * 0.5, screen_h * 0.5);
     let mut radial_selected: Option<usize> = None;
-    let mut radial_pinch_active = false;
-    let mut last_radial_trigger: Option<Instant> = None;
+    let mut radial_pinch_start: Option<Instant> = None;
 
     let frame_r: f32 = 120.0;
     let mut filter_x = OneEuroFilter::new(1.1, 0.015, 1.0);
@@ -413,64 +412,26 @@ fn main() {
                 let pinch_dist = get_distance(index_tip, thumb_tip);
                 let pinky_pinch_dist = get_distance(thumb_tip, pinky_tip);
 
-                // --- TRIGGER RADIAL MENU (Tangan Kanan: Pinch Jempol + Kelingking + Debounce) ---
-                let debounce_ready = last_radial_trigger
-                    .map(|t| now.duration_since(t) >= Duration::from_millis(RADIAL_DEBOUNCE_MS))
-                    .unwrap_or(true);
-
+                // --- TRIGGER RADIAL MENU (Hold Pinch Jempol + Kelingking -> Lepas untuk Pilih) ---
                 if pinky_pinch_dist < RADIAL_PINCH_THRESHOLD {
-                    if !radial_pinch_active && debounce_ready {
-                        radial_pinch_active = true;
-                        last_radial_trigger = Some(now);
-
-                        if !radial_open {
-                            radial_open = true;
-                            radial_selected = None;
-                            if let Ok(st) = cursor_state.lock() {
-                                radial_center = (
-                                    st.target_x.clamp(160.0, screen_w - 160.0),
-                                    st.target_y.clamp(160.0, screen_h - 160.0),
-                                );
-                            }
-                            ui_handle.update_radial(
-                                true,
-                                radial_center.0 as i32,
-                                radial_center.1 as i32,
-                                None,
+                    let start = *radial_pinch_start.get_or_insert(now);
+                    if !radial_open
+                        && now.duration_since(start) >= Duration::from_millis(RADIAL_HOLD_MS)
+                    {
+                        radial_open = true;
+                        radial_selected = None;
+                        if let Ok(st) = cursor_state.lock() {
+                            radial_center = (
+                                st.target_x.clamp(160.0, screen_w - 160.0),
+                                st.target_y.clamp(160.0, screen_h - 160.0),
                             );
-                        } else {
-                            radial_open = false;
-                            ui_handle.update_radial(false, 0, 0, None);
-                            if let Some(sel) = radial_selected.take() {
-                                match sel {
-                                    0 => {
-                                        take_screenshot();
-                                        ui_handle.show_hud("Radial: Screenshot");
-                                    }
-                                    1 => {
-                                        open_task_view();
-                                        ui_handle.show_hud("Radial: Task View");
-                                    }
-                                    2 => {
-                                        let next = !draw_mode.load(Ordering::SeqCst);
-                                        draw_mode.store(next, Ordering::SeqCst);
-                                        if !next {
-                                            ui_handle.draw_clear();
-                                        }
-                                        ui_handle.show_hud(if next {
-                                            "Air Draw: AKTIF (Cubit kanan untuk gambar)"
-                                        } else {
-                                            "Air Draw: NONAKTIF"
-                                        });
-                                    }
-                                    3 => {
-                                        open_clipboard_history();
-                                        ui_handle.show_hud("Radial: Clipboard");
-                                    }
-                                    _ => {}
-                                }
-                            }
                         }
+                        ui_handle.update_radial(
+                            true,
+                            radial_center.0 as i32,
+                            radial_center.1 as i32,
+                            None,
+                        );
                     }
 
                     if cam_visible {
@@ -483,7 +444,40 @@ fn main() {
                         );
                     }
                 } else if pinky_pinch_dist > RADIAL_RELEASE_THRESHOLD {
-                    radial_pinch_active = false;
+                    radial_pinch_start = None;
+                    if radial_open {
+                        radial_open = false;
+                        ui_handle.update_radial(false, 0, 0, None);
+                        if let Some(sel) = radial_selected.take() {
+                            match sel {
+                                0 => {
+                                    take_screenshot();
+                                    ui_handle.show_hud("Radial: Screenshot");
+                                }
+                                1 => {
+                                    open_task_view();
+                                    ui_handle.show_hud("Radial: Task View");
+                                }
+                                2 => {
+                                    let next = !draw_mode.load(Ordering::SeqCst);
+                                    draw_mode.store(next, Ordering::SeqCst);
+                                    if !next {
+                                        ui_handle.draw_clear();
+                                    }
+                                    ui_handle.show_hud(if next {
+                                        "Air Draw: AKTIF (Cubit kanan untuk gambar)"
+                                    } else {
+                                        "Air Draw: NONAKTIF"
+                                    });
+                                }
+                                3 => {
+                                    open_clipboard_history();
+                                    ui_handle.show_hud("Radial: Clipboard");
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
 
                 let raw_screen_x = map_value(middle_tip_raw.0, frame_r, w - frame_r, 0.0, screen_w);
@@ -636,7 +630,7 @@ fn main() {
                     is_dragging = false;
                 }
                 is_pinching = false;
-                radial_pinch_active = false;
+                radial_pinch_start = None;
                 if radial_open {
                     radial_open = false;
                     radial_selected = None;
@@ -655,7 +649,7 @@ fn main() {
                 is_dragging = false;
             }
             is_pinching = false;
-            radial_pinch_active = false;
+            radial_pinch_start = None;
             hand_was_active = false;
             right_hand_prev_y = None;
             left_knob_ref_y = None;
