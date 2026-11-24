@@ -25,6 +25,10 @@ use win_api::{
     volume_down, volume_up, HotkeyWatcher,
 };
 
+const RADIAL_PINCH_THRESHOLD: f32 = 38.0;
+const RADIAL_RELEASE_THRESHOLD: f32 = 46.0;
+const RADIAL_DEBOUNCE_MS: u64 = 500;
+
 struct OneEuroFilter {
     min_cutoff: f32,
     beta: f32,
@@ -166,19 +170,6 @@ fn is_hand_open(lms: &[Landmark; 21]) -> bool {
     open_fingers >= 3
 }
 
-/// Deteksi kepalan tangan (Fist): 4 jari utama terlipat di bawah sendi PIP
-fn is_hand_fist(lms: &[Landmark; 21]) -> bool {
-    let tips = [8, 12, 16, 20];
-    let pips = [6, 10, 14, 18];
-    let mut closed = 0;
-    for (tip, pip) in tips.iter().zip(pips.iter()) {
-        if lms[*tip].y > lms[*pip].y {
-            closed += 1;
-        }
-    }
-    closed == 4
-}
-
 fn main() {
     enable_dpi_awareness();
     enable_high_res_timer();
@@ -310,10 +301,12 @@ fn main() {
     // State untuk Air-Knob (Volume Tangan Kiri)
     let mut left_knob_ref_y: Option<f32> = None;
 
-    // State untuk Radial Menu (Kepalan Tangan Kiri)
+    // State untuk Radial Menu (Tangan Kanan: Pinch Jempol + Kelingking + Debounce)
     let mut radial_open = false;
     let mut radial_center = (screen_w * 0.5, screen_h * 0.5);
     let mut radial_selected: Option<usize> = None;
+    let mut radial_pinch_active = false;
+    let mut last_radial_trigger: Option<Instant> = None;
 
     let frame_r: f32 = 120.0;
     let mut filter_x = OneEuroFilter::new(1.1, 0.015, 1.0);
@@ -372,111 +365,126 @@ fn main() {
                 }
             }
 
-            // --- 1. GESTUR TANGAN KIRI: RADIAL MENU (FIST) & AIR-KNOB (VOLUME) ---
+            // --- 1. GESTUR TANGAN KIRI: AIR-KNOB (VOLUME) ---
             if let Some(left_lms) = left_hand_lms {
                 let l_index = (left_lms[8].x * w, left_lms[8].y * h);
                 let l_thumb = (left_lms[4].x * w, left_lms[4].y * h);
                 let l_pinch = get_distance(l_index, l_thumb) < 38.0;
-                let l_fist = is_hand_fist(&left_lms);
 
-                if l_fist {
-                    left_knob_ref_y = None;
-                    if !radial_open {
-                        radial_open = true;
-                        radial_selected = None;
-                        if let Ok(st) = cursor_state.lock() {
-                            radial_center = (
-                                st.target_x.clamp(160.0, screen_w - 160.0),
-                                st.target_y.clamp(160.0, screen_h - 160.0),
-                            );
+                if l_pinch {
+                    let cur_y = l_index.1;
+                    if let Some(ref_y) = left_knob_ref_y {
+                        let dy = ref_y - cur_y; // Positif jika naik
+                        if dy > 16.0 {
+                            volume_up();
+                            left_knob_ref_y = Some(cur_y);
+                            ui_handle.show_hud("Air-Knob: Volume Naik ▲");
+                        } else if dy < -16.0 {
+                            volume_down();
+                            left_knob_ref_y = Some(cur_y);
+                            ui_handle.show_hud("Air-Knob: Volume Turun ▼");
                         }
-                        ui_handle.update_radial(
-                            true,
-                            radial_center.0 as i32,
-                            radial_center.1 as i32,
-                            None,
+                    } else {
+                        left_knob_ref_y = Some(cur_y);
+                    }
+                    if cam_visible {
+                        draw_filled_circle(
+                            &mut frame,
+                            l_index.0 as i32,
+                            l_index.1 as i32,
+                            14,
+                            Rgb([0, 200, 255]),
                         );
                     }
                 } else {
-                    if radial_open {
-                        radial_open = false;
-                        ui_handle.update_radial(false, 0, 0, None);
-                        if let Some(sel) = radial_selected.take() {
-                            match sel {
-                                0 => {
-                                    take_screenshot();
-                                    ui_handle.show_hud("Radial: Screenshot");
-                                }
-                                1 => {
-                                    open_task_view();
-                                    ui_handle.show_hud("Radial: Task View");
-                                }
-                                2 => {
-                                    let next = !draw_mode.load(Ordering::SeqCst);
-                                    draw_mode.store(next, Ordering::SeqCst);
-                                    if !next {
-                                        ui_handle.draw_clear();
-                                    }
-                                    ui_handle.show_hud(if next {
-                                        "Air Draw: AKTIF (Cubit kanan untuk gambar)"
-                                    } else {
-                                        "Air Draw: NONAKTIF"
-                                    });
-                                }
-                                3 => {
-                                    open_clipboard_history();
-                                    ui_handle.show_hud("Radial: Clipboard");
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-
-                    // Air-Knob Volume: Tangan kiri mencubit (bukan fist, bukan scroll 2 tangan)
-                    if l_pinch {
-                        let cur_y = l_index.1;
-                        if let Some(ref_y) = left_knob_ref_y {
-                            let dy = ref_y - cur_y; // Positif jika naik
-                            if dy > 16.0 {
-                                volume_up();
-                                left_knob_ref_y = Some(cur_y);
-                                ui_handle.show_hud("Air-Knob: Volume Naik ▲");
-                            } else if dy < -16.0 {
-                                volume_down();
-                                left_knob_ref_y = Some(cur_y);
-                                ui_handle.show_hud("Air-Knob: Volume Turun ▼");
-                            }
-                        } else {
-                            left_knob_ref_y = Some(cur_y);
-                        }
-                        if cam_visible {
-                            draw_filled_circle(
-                                &mut frame,
-                                l_index.0 as i32,
-                                l_index.1 as i32,
-                                14,
-                                Rgb([0, 200, 255]),
-                            );
-                        }
-                    } else {
-                        left_knob_ref_y = None;
-                    }
+                    left_knob_ref_y = None;
                 }
             } else {
                 left_knob_ref_y = None;
-                if radial_open {
-                    radial_open = false;
-                    radial_selected = None;
-                    ui_handle.update_radial(false, 0, 0, None);
-                }
             }
 
-            // --- 2. GESTUR TANGAN KANAN: KURSOR, SCROLL, RADIAL SELECT, AIR DRAW ---
+            // --- 2. GESTUR TANGAN KANAN: KURSOR, SCROLL, RADIAL MENU, AIR DRAW ---
             if let Some(lms) = right_hand_lms {
                 let middle_tip_raw = (lms[12].x * w, lms[12].y * h);
                 let index_tip = (lms[8].x * w, lms[8].y * h);
                 let thumb_tip = (lms[4].x * w, lms[4].y * h);
+                let pinky_tip = (lms[20].x * w, lms[20].y * h);
+
                 let pinch_dist = get_distance(index_tip, thumb_tip);
+                let pinky_pinch_dist = get_distance(thumb_tip, pinky_tip);
+
+                // --- TRIGGER RADIAL MENU (Tangan Kanan: Pinch Jempol + Kelingking + Debounce) ---
+                let debounce_ready = last_radial_trigger
+                    .map(|t| now.duration_since(t) >= Duration::from_millis(RADIAL_DEBOUNCE_MS))
+                    .unwrap_or(true);
+
+                if pinky_pinch_dist < RADIAL_PINCH_THRESHOLD {
+                    if !radial_pinch_active && debounce_ready {
+                        radial_pinch_active = true;
+                        last_radial_trigger = Some(now);
+
+                        if !radial_open {
+                            radial_open = true;
+                            radial_selected = None;
+                            if let Ok(st) = cursor_state.lock() {
+                                radial_center = (
+                                    st.target_x.clamp(160.0, screen_w - 160.0),
+                                    st.target_y.clamp(160.0, screen_h - 160.0),
+                                );
+                            }
+                            ui_handle.update_radial(
+                                true,
+                                radial_center.0 as i32,
+                                radial_center.1 as i32,
+                                None,
+                            );
+                        } else {
+                            radial_open = false;
+                            ui_handle.update_radial(false, 0, 0, None);
+                            if let Some(sel) = radial_selected.take() {
+                                match sel {
+                                    0 => {
+                                        take_screenshot();
+                                        ui_handle.show_hud("Radial: Screenshot");
+                                    }
+                                    1 => {
+                                        open_task_view();
+                                        ui_handle.show_hud("Radial: Task View");
+                                    }
+                                    2 => {
+                                        let next = !draw_mode.load(Ordering::SeqCst);
+                                        draw_mode.store(next, Ordering::SeqCst);
+                                        if !next {
+                                            ui_handle.draw_clear();
+                                        }
+                                        ui_handle.show_hud(if next {
+                                            "Air Draw: AKTIF (Cubit kanan untuk gambar)"
+                                        } else {
+                                            "Air Draw: NONAKTIF"
+                                        });
+                                    }
+                                    3 => {
+                                        open_clipboard_history();
+                                        ui_handle.show_hud("Radial: Clipboard");
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+
+                    if cam_visible {
+                        draw_filled_circle(
+                            &mut frame,
+                            pinky_tip.0 as i32,
+                            pinky_tip.1 as i32,
+                            12,
+                            Rgb([255, 165, 0]),
+                        );
+                    }
+                } else if pinky_pinch_dist > RADIAL_RELEASE_THRESHOLD {
+                    radial_pinch_active = false;
+                }
 
                 let raw_screen_x = map_value(middle_tip_raw.0, frame_r, w - frame_r, 0.0, screen_w);
                 let raw_screen_y = map_value(middle_tip_raw.1, frame_r, h - frame_r, 0.0, screen_h);
@@ -628,6 +636,12 @@ fn main() {
                     is_dragging = false;
                 }
                 is_pinching = false;
+                radial_pinch_active = false;
+                if radial_open {
+                    radial_open = false;
+                    radial_selected = None;
+                    ui_handle.update_radial(false, 0, 0, None);
+                }
                 hand_was_active = false;
                 right_hand_prev_y = None;
                 if let Ok(mut st) = cursor_state.lock() {
@@ -641,6 +655,7 @@ fn main() {
                 is_dragging = false;
             }
             is_pinching = false;
+            radial_pinch_active = false;
             hand_was_active = false;
             right_hand_prev_y = None;
             left_knob_ref_y = None;
