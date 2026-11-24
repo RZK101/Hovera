@@ -4,7 +4,8 @@ use std::thread;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, CreateFontW, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DeleteObject,
-    DrawTextW, Ellipse, EndPaint, FillRect, InvalidateRect, LineTo, MoveToEx, SelectObject,
+    DrawTextW, Ellipse, EndPaint, FillRect, InvalidateRect, LineTo, MoveToEx, Pie, RoundRect,
+    SelectObject,
     SetBkMode, SetTextColor, SetWindowRgn, CLEARTYPE_QUALITY, DEFAULT_CHARSET, DEFAULT_PITCH,
     DT_CENTER, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_BOLD, FW_SEMIBOLD, OUT_DEFAULT_PRECIS,
     PAINTSTRUCT, PS_SOLID, TRANSPARENT,
@@ -38,8 +39,21 @@ const MENU_CLEAR_DRAW: usize = 1006;
 const MENU_QUIT: usize = 1003;
 const MENU_HELP: usize = 1004;
 
-const RADIAL_SIZE: i32 = 260;
-const COLOR_KEY_TRANS: u32 = 0x00010101;
+const RADIAL_SIZE: i32 = 340;
+const HUD_WIDTH: i32 = 340;
+const HUD_HEIGHT: i32 = 46;
+const COLOR_KEY_TRANS: u32 = 0x00FF00FF;
+
+const RADIAL_LABELS: [&str; 8] = [
+    "Screenshot",
+    "Desktop",
+    "Task View",
+    "Play/Pause",
+    "Air Draw",
+    "Mute",
+    "Clipboard",
+    "Emoji",
+];
 
 #[derive(Clone, Copy)]
 struct RadialData {
@@ -211,8 +225,8 @@ pub fn start_ui(
         wc_hud.lpszClassName = hud_class.as_ptr();
         RegisterClassW(&wc_hud);
 
-        let hud_w = 360;
-        let hud_h = 46;
+        let hud_w = HUD_WIDTH;
+        let hud_h = HUD_HEIGHT;
         let hwnd_hud = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             hud_class.as_ptr(),
@@ -228,7 +242,7 @@ pub fn start_ui(
             std::ptr::null(),
         );
 
-        let rgn = CreateRoundRectRgn(0, 0, hud_w, hud_h, 24, 24);
+        let rgn = CreateRoundRectRgn(0, 0, hud_w + 1, hud_h + 1, 22, 22);
         SetWindowRgn(hwnd_hud, rgn, 1);
         SetLayeredWindowAttributes(hwnd_hud, 0, 225, LWA_ALPHA);
 
@@ -371,24 +385,68 @@ unsafe extern "system" fn wnd_proc_radial(
                 .get()
                 .and_then(|s| s.radial.lock().ok().and_then(|r| r.selected));
 
-            // Lingkaran luar gelap
-            let bg_brush = CreateSolidBrush(0x00242424);
-            let border_pen = CreatePen(PS_SOLID as i32, 3, 0x00FFAA00);
+            // Lingkaran utama dark glass
+            let cx = RADIAL_SIZE / 2;
+            let cy = RADIAL_SIZE / 2;
+            let r_outer = RADIAL_SIZE / 2 - 8;
+            let r_inner = 46;
+
+            let bg_brush = CreateSolidBrush(0x002A170F);
+            let border_pen = CreatePen(PS_SOLID as i32, 2, 0x00554133);
             let old_brush = SelectObject(hdc, bg_brush as _);
             let old_pen = SelectObject(hdc, border_pen as _);
-            Ellipse(hdc, 6, 6, RADIAL_SIZE - 6, RADIAL_SIZE - 6);
+            Ellipse(hdc, cx - r_outer, cy - r_outer, cx + r_outer, cy + r_outer);
+
+            if let Some(active_sector) = selected {
+                if active_sector < 8 {
+                    let center_deg = -90.0 + (active_sector as f64) * 45.0;
+                    let start_rad = (center_deg + 22.5).to_radians();
+                    let end_rad = (center_deg - 22.5).to_radians();
+                    let x3 = cx + (r_outer as f64 * start_rad.cos()) as i32;
+                    let y3 = cy + (r_outer as f64 * start_rad.sin()) as i32;
+                    let x4 = cx + (r_outer as f64 * end_rad.cos()) as i32;
+                    let y4 = cy + (r_outer as f64 * end_rad.sin()) as i32;
+                    let hi_brush = CreateSolidBrush(0x00E9A50E);
+                    let hi_pen = CreatePen(PS_SOLID as i32, 2, 0x00F8BD38);
+                    SelectObject(hdc, hi_brush as _);
+                    SelectObject(hdc, hi_pen as _);
+                    Pie(hdc, cx - r_outer, cy - r_outer, cx + r_outer, cy + r_outer, x3, y3, x4, y4);
+                    SelectObject(hdc, old_brush);
+                    SelectObject(hdc, old_pen);
+                    DeleteObject(hi_brush as _);
+                    DeleteObject(hi_pen as _);
+                }
+            }
+
+            let div_pen = CreatePen(PS_SOLID as i32, 1, 0x004B3B2E);
+            SelectObject(hdc, div_pen as _);
+            for i in 0..8 {
+                let rad = (-90.0 + 22.5 + (i as f64) * 45.0).to_radians();
+                let x1 = cx + (r_inner as f64 * rad.cos()) as i32;
+                let y1 = cy + (r_inner as f64 * rad.sin()) as i32;
+                let x2 = cx + (r_outer as f64 * rad.cos()) as i32;
+                let y2 = cy + (r_outer as f64 * rad.sin()) as i32;
+                MoveToEx(hdc, x1, y1, std::ptr::null_mut());
+                LineTo(hdc, x2, y2);
+            }
+            DeleteObject(div_pen as _);
+
+            let hub_brush = CreateSolidBrush(0x001E1612);
+            let hub_pen = CreatePen(
+                PS_SOLID as i32,
+                2,
+                if selected.is_some() { 0x00F8BD38 } else { 0x00645447 },
+            );
+            SelectObject(hdc, hub_brush as _);
+            SelectObject(hdc, hub_pen as _);
+            Ellipse(hdc, cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner);
+            DeleteObject(hub_brush as _);
+            DeleteObject(hub_pen as _);
+
             SelectObject(hdc, old_brush);
             SelectObject(hdc, old_pen);
             DeleteObject(bg_brush as _);
             DeleteObject(border_pen as _);
-
-            // 4 Tombol Sektor: Atas(0), Kanan(1), Bawah(2), Kiri(3)
-            let items: [(&str, i32, i32); 4] = [
-                ("SCREENSHOT", RADIAL_SIZE / 2, 48),
-                ("TASK VIEW", RADIAL_SIZE - 54, RADIAL_SIZE / 2),
-                ("AIR DRAW", RADIAL_SIZE / 2, RADIAL_SIZE - 48),
-                ("CLIPBOARD", 54, RADIAL_SIZE / 2),
-            ];
 
             let font = CreateFontW(
                 15,
@@ -409,29 +467,34 @@ unsafe extern "system" fn wnd_proc_radial(
             let old_font = SelectObject(hdc, font as _);
             SetBkMode(hdc, TRANSPARENT as i32);
 
-            for (idx, (label, cx, cy)) in items.iter().enumerate() {
-                let is_sel = selected == Some(idx);
-                let fill_color = if is_sel { 0x00D87A00 } else { 0x00383838 };
-                let b = CreateSolidBrush(fill_color);
-                let p = CreatePen(PS_SOLID as i32, 2, if is_sel { 0x00FFFFFF } else { 0x00555555 });
-                let ob = SelectObject(hdc, b as _);
-                let op = SelectObject(hdc, p as _);
-                Ellipse(hdc, cx - 42, cy - 26, cx + 42, cy + 26);
-                SelectObject(hdc, ob);
-                SelectObject(hdc, op);
-                DeleteObject(b as _);
-                DeleteObject(p as _);
-
-                SetTextColor(hdc, 0x00FFFFFF);
-                let mut tr = RECT {
-                    left: cx - 44,
-                    top: cy - 16,
-                    right: cx + 44,
-                    bottom: cy + 16,
+            let label_r = (r_inner + r_outer) as f64 * 0.54;
+            for (i, label) in RADIAL_LABELS.iter().enumerate() {
+                let rad = (-90.0 + (i as f64) * 45.0).to_radians();
+                let lx = cx + (label_r * rad.cos()) as i32;
+                let ly = cy + (label_r * rad.sin()) as i32;
+                SetTextColor(hdc, if selected == Some(i) { 0x00FFFFFF } else { 0x00CBD5E1 });
+                let mut lrc = RECT {
+                    left: lx - 48,
+                    top: ly - 12,
+                    right: lx + 48,
+                    bottom: ly + 12,
                 };
-                let w = to_wide(label);
-                DrawTextW(hdc, w.as_ptr(), -1, &mut tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                let wide_lbl = to_wide(label);
+                DrawTextW(hdc, wide_lbl.as_ptr(), -1, &mut lrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             }
+
+            let center_text = selected
+                .filter(|sector| *sector < 8)
+                .map_or("HOVERA", |sector| RADIAL_LABELS[sector]);
+            SetTextColor(hdc, 0x00F8BD38);
+            let mut crc = RECT {
+                left: cx - r_inner + 4,
+                top: cy - 14,
+                right: cx + r_inner - 4,
+                bottom: cy + 14,
+            };
+            let wide_center = to_wide(center_text);
+            DrawTextW(hdc, wide_center.as_ptr(), -1, &mut crc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
             SelectObject(hdc, old_font);
             DeleteObject(font as _);
@@ -528,9 +591,15 @@ unsafe extern "system" fn wnd_proc_hud(
             let mut rect: RECT = std::mem::zeroed();
             GetClientRect(hwnd, &mut rect);
 
-            let bg_brush = CreateSolidBrush(0x00222222);
-            FillRect(hdc, &rect, bg_brush);
+            let bg_brush = CreateSolidBrush(0x001E1612);
+            let border_pen = CreatePen(PS_SOLID as i32, 2, 0x00F8BD38);
+            let old_brush = SelectObject(hdc, bg_brush as _);
+            let old_pen = SelectObject(hdc, border_pen as _);
+            RoundRect(hdc, rect.left + 1, rect.top + 1, rect.right - 1, rect.bottom - 1, 20, 20);
+            SelectObject(hdc, old_brush);
+            SelectObject(hdc, old_pen);
             DeleteObject(bg_brush as _);
+            DeleteObject(border_pen as _);
 
             let font = CreateFontW(
                 20,

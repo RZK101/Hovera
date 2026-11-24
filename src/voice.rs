@@ -14,6 +14,11 @@ use std::time::{Duration, Instant};
 use vosk::{DecodingState, LogLevel, Model, Recognizer};
 
 const VOICE_GRAMMAR: &[&str] = &[
+    "shutdown hovera",
+    "exit app",
+    "quit program",
+    "close hovera",
+    "matikan hovera",
     "switch window",
     "next window",
     "desktop right",
@@ -202,7 +207,19 @@ impl VoiceController {
                                     && text != "[unk]"
                                     && last_trigger.elapsed() >= cooldown
                                 {
-                                    if text.contains("start typing") {
+                                    // --- PERINTAH KELUAR APLIKASI ---
+                                    if text.contains("shutdown hovera")
+                                        || text.contains("exit app")
+                                        || text.contains("quit program")
+                                        || text.contains("close hovera")
+                                        || text.contains("matikan hovera")
+                                    {
+                                        println!("Voice Command: SHUTDOWN HOVERA");
+                                        ui.show_hud("Shutting down Hovera...");
+                                        thread::sleep(Duration::from_millis(400));
+                                        is_running.store(false, Ordering::Relaxed);
+                                        break;
+                                    } else if text.contains("start typing") {
                                         dictation_mode = true;
                                         dictation_recognizer.reset();
                                         last_trigger = Instant::now();

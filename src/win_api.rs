@@ -147,6 +147,20 @@ pub fn open_task_view() {
     tap_combo(&[VK_LWIN, VK_TAB]);
 }
 
+/// Win + D (Show Desktop)
+pub fn show_desktop() {
+    tap_combo(&[VK_LWIN, 0x44]); // VK_D
+}
+
+pub fn mute_volume() {
+    tap_combo(&[VK_VOLUME_MUTE]);
+}
+
+/// Win + . (Emoji Panel)
+pub fn emoji_panel() {
+    tap_combo(&[VK_LWIN, 0xBE]); // VK_OEM_PERIOD
+}
+
 // --- NAVIGASI & SISTEM ---
 pub fn navigate_back() {
     tap_combo(&[VK_MENU, VK_LEFT]);

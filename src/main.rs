@@ -20,9 +20,9 @@ use std::time::{Duration, Instant};
 use voice::VoiceController;
 use win_api::{
     disable_high_res_timer, enable_dpi_awareness, enable_high_res_timer, get_screen_size,
-    left_click, mouse_down, mouse_up, move_mouse, open_clipboard_history, open_task_view,
-    right_click, scroll_vertical, set_high_priority, set_window_topmost, take_screenshot,
-    volume_down, volume_up, HotkeyWatcher,
+    emoji_panel, left_click, media_play_pause, mouse_down, mouse_up, move_mouse, mute_volume,
+    open_clipboard_history, open_task_view, right_click, scroll_vertical, set_high_priority,
+    set_window_topmost, show_desktop, take_screenshot, volume_down, volume_up, HotkeyWatcher,
 };
 
 const RADIAL_PINCH_THRESHOLD: f32 = 38.0;
@@ -455,10 +455,18 @@ fn main() {
                                     ui_handle.show_hud("Radial: Screenshot");
                                 }
                                 1 => {
+                                    show_desktop();
+                                    ui_handle.show_hud("Radial: Show Desktop");
+                                }
+                                2 => {
                                     open_task_view();
                                     ui_handle.show_hud("Radial: Task View");
                                 }
-                                2 => {
+                                3 => {
+                                    media_play_pause();
+                                    ui_handle.show_hud("Radial: Play / Pause");
+                                }
+                                4 => {
                                     let next = !draw_mode.load(Ordering::SeqCst);
                                     draw_mode.store(next, Ordering::SeqCst);
                                     if !next {
@@ -470,9 +478,17 @@ fn main() {
                                         "Air Draw: NONAKTIF"
                                     });
                                 }
-                                3 => {
+                                5 => {
+                                    mute_volume();
+                                    ui_handle.show_hud("Radial: Mute / Unmute");
+                                }
+                                6 => {
                                     open_clipboard_history();
                                     ui_handle.show_hud("Radial: Clipboard");
+                                }
+                                7 => {
+                                    emoji_panel();
+                                    ui_handle.show_hud("Radial: Emoji Panel");
                                 }
                                 _ => {}
                             }
@@ -550,14 +566,11 @@ fn main() {
                     if radial_open {
                         let dx = tx - radial_center.0;
                         let dy = ty - radial_center.1;
-                        let new_sel = if dx.hypot(dy) > 35.0 {
-                            if dy.abs() > dx.abs() {
-                                if dy < 0.0 { Some(0) } else { Some(2) }
-                            } else if dx > 0.0 {
-                                Some(1)
-                            } else {
-                                Some(3)
-                            }
+                        let dist_sq = dx * dx + dy * dy;
+                        let new_sel = if dist_sq > 2000.0 {
+                            let deg = dy.atan2(dx).to_degrees();
+                            let shifted = (deg + 90.0 + 22.5).rem_euclid(360.0);
+                            Some((shifted / 45.0).floor() as usize)
                         } else {
                             None
                         };
